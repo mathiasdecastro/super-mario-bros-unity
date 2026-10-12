@@ -10,6 +10,7 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] float runSpeed = 7f;
     [SerializeField] float acceleration = 30f;
     [SerializeField] float deceleration = 40f;
+    [SerializeField] float skidDeceleration = 14f;
 
     [Header("Jump")]
     [SerializeField] float jumpSpeed = 15f;
@@ -22,6 +23,10 @@ public class PlayerMovement : MonoBehaviour
     Rigidbody2D rb;
     BoxCollider2D col;
     SpriteRenderer sprite;
+    Animator anim;
+    static readonly int SpeedHash = Animator.StringToHash("Speed");
+    static readonly int GroundedHash = Animator.StringToHash("Grounded");
+    static readonly int SkidHash = Animator.StringToHash("Skidding");
 
     float baseGravity;
     float moveInput;
@@ -34,6 +39,7 @@ public class PlayerMovement : MonoBehaviour
 
     void Awake()
     {
+        anim = GetComponent<Animator>();
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<BoxCollider2D>();
         sprite = GetComponentInChildren<SpriteRenderer>();
@@ -54,8 +60,20 @@ public class PlayerMovement : MonoBehaviour
         if (kb.spaceKey.wasPressedThisFrame) jumpPressed = true;
         if (kb.spaceKey.wasReleasedThisFrame) jumpReleased = true;
 
-        if (moveInput > 0f) sprite.flipX = false;
+        float vx = rb.linearVelocity.x;
+
+        bool skidding = IsGrounded
+            && moveInput != 0f
+            && Mathf.Abs(vx) > 1f
+            && Mathf.Sign(moveInput) != Mathf.Sign(vx);
+
+        if (skidding) sprite.flipX = vx < 0f;
+        else if (moveInput > 0f) sprite.flipX = false;
         else if (moveInput < 0f) sprite.flipX = true;
+
+        anim.SetFloat(SpeedHash, Mathf.Abs(rb.linearVelocity.x));
+        anim.SetBool(GroundedHash, IsGrounded);
+        anim.SetBool(SkidHash, skidding);
     }
 
     private void FixedUpdate()
@@ -75,9 +93,19 @@ public class PlayerMovement : MonoBehaviour
 
     void Move()
     {
+        float vx = rb.linearVelocity.x;
         float target = moveInput * (running ? runSpeed : walkSpeed);
-        float rate = Mathf.Abs(target) > 0.01f ? acceleration : deceleration;
-        float vx = Mathf.MoveTowards(rb.linearVelocity.x, target, rate * Time.fixedDeltaTime);
+
+        bool turning = Mathf.Abs(target) > 0.01f
+            && Mathf.Abs(vx) > 0.1f
+            && Mathf.Sign(target) != Mathf.Sign(vx);
+
+        float rate;
+        if (turning && IsGrounded) rate = skidDeceleration;
+        else if (Mathf.Abs(target) > 0.01f) rate = acceleration;
+        else rate = deceleration;
+
+        vx = Mathf.MoveTowards(vx, target, rate * Time.fixedDeltaTime);
         rb.linearVelocity = new Vector2(vx, rb.linearVelocity.y);
     }
 
